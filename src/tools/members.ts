@@ -37,10 +37,15 @@ export function registerMemberTools(server: McpServer) {
   // Browse members
   server.tool(
     "members_browse",
-    "Browse and list members with filtering, pagination, and sorting options. Members are subscribers and users who can access your Ghost site's content. Supports filtering by subscription status, tier, and other member properties. Reference: https://docs.ghost.org/admin-api/members",
+    "Browse and list members with essential fields optimized for listing and discovery. Returns lightweight member data including identity, status, and engagement metrics. Use members_read for full member details including subscriptions and labels. Reference: https://docs.ghost.org/admin-api/members",
     browseParams,
     async (args, _extra) => {
-      const members = await ghostApiClient.members.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,email,name,status,created_at,last_seen_at,email_count,email_open_rate'
+      };
+      const members = await ghostApiClient.members.browse(optimizedArgs);
       return {
         content: [
           {

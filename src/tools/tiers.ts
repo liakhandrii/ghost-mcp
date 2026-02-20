@@ -47,10 +47,16 @@ export function registerTierTools(server: McpServer) {
   // Browse tiers
   server.tool(
     "tiers_browse",
-    "Browse and list membership tiers with filtering and pagination options. Tiers define subscription levels and pricing for paid memberships in Ghost. Supports filtering by type and status. Reference: https://docs.ghost.org/admin-api/tiers",
+    "Browse and list membership tiers with essential fields optimized for listing and discovery. Returns lightweight tier data including pricing but excludes heavy benefits descriptions. Use tiers_read for full tier details including benefits. Reference: https://docs.ghost.org/admin-api/tiers",
     browseParams,
     async (args, _extra) => {
-      const tiers = await ghostApiClient.tiers.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,name,slug,type,active,currency,created_at,updated_at',
+        include: 'monthly_price,yearly_price'
+      };
+      const tiers = await ghostApiClient.tiers.browse(optimizedArgs);
       return {
         content: [
           {

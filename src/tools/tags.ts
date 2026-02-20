@@ -35,10 +35,15 @@ export function registerTagTools(server: McpServer) {
   // Browse tags
   server.tool(
     "tags_browse",
-    "Browse and list tags with filtering, pagination, and sorting options. Tags are used to categorize and organize posts in Ghost. Supports filtering by visibility and other tag properties. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
+    "Browse and list tags with essential fields optimized for listing and discovery. Returns lightweight tag data including name, slug, and visibility. Use tags_read for full tag details including descriptions and metadata. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     browseParams,
     async (args, _extra) => {
-      const tags = await ghostApiClient.tags.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,name,slug,visibility,created_at,updated_at'
+      };
+      const tags = await ghostApiClient.tags.browse(optimizedArgs);
       return {
         content: [
           {

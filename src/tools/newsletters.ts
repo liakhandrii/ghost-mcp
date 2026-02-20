@@ -60,10 +60,15 @@ export function registerNewsletterTools(server: McpServer) {
   // Browse newsletters
   server.tool(
     "newsletters_browse",
-    "Browse and list newsletters with filtering and pagination options. Newsletters define email publication settings and branding for sending posts to subscribers. Supports filtering by status and visibility. Reference: https://docs.ghost.org/admin-api/newsletters",
+    "Browse and list newsletters with essential fields optimized for listing and discovery. Returns lightweight newsletter data excluding heavy design settings. Use newsletters_read for full newsletter details including design configuration. Reference: https://docs.ghost.org/admin-api/newsletters",
     browseParams,
     async (args, _extra) => {
-      const newsletters = await ghostApiClient.newsletters.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,name,slug,status,visibility,sender_name,subscribe_on_signup,created_at,updated_at'
+      };
+      const newsletters = await ghostApiClient.newsletters.browse(optimizedArgs);
       return {
         content: [
           {

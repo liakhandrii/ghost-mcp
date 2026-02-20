@@ -44,10 +44,16 @@ export function registerOfferTools(server: McpServer) {
   // Browse offers
   server.tool(
     "offers_browse",
-    "Browse and list membership offers with filtering and pagination options. Offers provide discounts and promotions for membership tiers in Ghost. Supports filtering by status and tier. Reference: https://docs.ghost.org/admin-api/offers",
+    "Browse and list membership offers with essential fields optimized for listing and discovery. Returns lightweight offer data including discount details and usage stats with basic tier info. Use offers_read for full offer details. Reference: https://docs.ghost.org/admin-api/offers",
     browseParams,
     async (args, _extra) => {
-      const offers = await ghostApiClient.offers.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,name,code,status,type,amount,cadence,redemption_count,created_at',
+        include: 'tier'
+      };
+      const offers = await ghostApiClient.offers.browse(optimizedArgs);
       return {
         content: [
           {

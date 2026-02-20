@@ -35,10 +35,16 @@ export function registerUserTools(server: McpServer) {
   // Browse users
   server.tool(
     "users_browse",
-    "Browse and list staff users with filtering and pagination options. Users are staff members who can access Ghost Admin with different role-based permissions. Supports filtering by role and status. Reference: https://docs.ghost.org/admin-api/users",
+    "Browse and list staff users with essential fields optimized for listing and discovery. Returns lightweight user data with role information but excludes profile details and notification settings. Use users_read for full user details. Reference: https://docs.ghost.org/admin-api/users",
     browseParams,
     async (args, _extra) => {
-      const users = await ghostApiClient.users.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,name,slug,email,status,last_seen,created_at,updated_at',
+        include: 'roles'
+      };
+      const users = await ghostApiClient.users.browse(optimizedArgs);
       return {
         content: [
           {
