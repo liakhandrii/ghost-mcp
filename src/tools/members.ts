@@ -37,6 +37,7 @@ export function registerMemberTools(server: McpServer) {
   // Browse members
   server.tool(
     "members_browse",
+    "Browse and list members with filtering, pagination, and sorting options. Members are subscribers and users who can access your Ghost site's content. Supports filtering by subscription status, tier, and other member properties. Reference: https://docs.ghost.org/admin-api/members",
     browseParams,
     async (args, _extra) => {
       const members = await ghostApiClient.members.browse(args);
@@ -54,6 +55,7 @@ export function registerMemberTools(server: McpServer) {
   // Read member
   server.tool(
     "members_read",
+    "Read a specific member by ID or email address. Returns complete member data including subscription status, tiers, labels, and activity history. Use this to get detailed information about a single member. Reference: https://docs.ghost.org/admin-api/members",
     readParams,
     async (args, _extra) => {
       const member = await ghostApiClient.members.read(args);
@@ -71,6 +73,7 @@ export function registerMemberTools(server: McpServer) {
   // Add member
   server.tool(
     "members_add",
+    "Create a new member with email address and optional metadata. Can set member name, labels, notes, and subscription preferences. Members can be created with or without sending welcome emails. Reference: https://docs.ghost.org/admin-api/members",
     addParams,
     async (args, _extra) => {
       const member = await ghostApiClient.members.add(args);
@@ -88,6 +91,7 @@ export function registerMemberTools(server: McpServer) {
   // Edit member
   server.tool(
     "members_edit",
+    "Update an existing member by ID with new information or subscription details. Can modify member name, email, labels, notes, and subscription preferences. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/members",
     editParams,
     async (args, _extra) => {
       const member = await ghostApiClient.members.edit(args);
@@ -105,6 +109,7 @@ export function registerMemberTools(server: McpServer) {
   // Delete member
   server.tool(
     "members_delete",
+    "Permanently delete a member by ID. This removes the member from your subscriber list and cancels any active subscriptions. This action cannot be undone. Reference: https://docs.ghost.org/admin-api/members",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.members.delete(args);

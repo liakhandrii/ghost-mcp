@@ -44,6 +44,7 @@ export function registerOfferTools(server: McpServer) {
   // Browse offers
   server.tool(
     "offers_browse",
+    "Browse and list membership offers with filtering and pagination options. Offers provide discounts and promotions for membership tiers in Ghost. Supports filtering by status and tier. Reference: https://docs.ghost.org/admin-api/offers",
     browseParams,
     async (args, _extra) => {
       const offers = await ghostApiClient.offers.browse(args);
@@ -61,6 +62,7 @@ export function registerOfferTools(server: McpServer) {
   // Read offer
   server.tool(
     "offers_read",
+    "Read a specific membership offer by ID. Returns complete offer data including discount details, tier association, redemption limits, and usage statistics. Use this to get detailed information about a single offer. Reference: https://docs.ghost.org/admin-api/offers",
     readParams,
     async (args, _extra) => {
       const offer = await ghostApiClient.offers.read(args);
@@ -78,6 +80,7 @@ export function registerOfferTools(server: McpServer) {
   // Add offer
   server.tool(
     "offers_add",
+    "Create a new membership offer with discount and promotion settings. Offers provide percentage or fixed amount discounts for membership tiers with optional redemption limits and expiry dates. Can set display name and portal settings. Reference: https://docs.ghost.org/admin-api/offers",
     addParams,
     async (args, _extra) => {
       const offer = await ghostApiClient.offers.add(args);
@@ -95,6 +98,7 @@ export function registerOfferTools(server: McpServer) {
   // Edit offer
   server.tool(
     "offers_edit",
+    "Update an existing membership offer by ID with new discount settings or limits. Can modify offer name, discount amount, redemption limits, and expiry dates. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/offers",
     editParams,
     async (args, _extra) => {
       const offer = await ghostApiClient.offers.edit(args);
@@ -112,6 +116,7 @@ export function registerOfferTools(server: McpServer) {
   // Delete offer
   server.tool(
     "offers_delete",
+    "Permanently delete a membership offer by ID. This removes the offer and prevents new redemptions, but existing subscriptions using the offer remain active. Note: The Ghost API may not support offer deletion - this tool may return an error. Reference: https://docs.ghost.org/admin-api/offers",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.offers.delete(args);

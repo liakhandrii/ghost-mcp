@@ -35,6 +35,7 @@ export function registerUserTools(server: McpServer) {
   // Browse users
   server.tool(
     "users_browse",
+    "Browse and list staff users with filtering and pagination options. Users are staff members who can access Ghost Admin with different role-based permissions. Supports filtering by role and status. Reference: https://docs.ghost.org/admin-api/users",
     browseParams,
     async (args, _extra) => {
       const users = await ghostApiClient.users.browse(args);
@@ -52,6 +53,7 @@ export function registerUserTools(server: McpServer) {
   // Read user
   server.tool(
     "users_read",
+    "Read a specific staff user by ID or slug. Returns complete user data including name, email, role, profile information, and permissions. Use this to get detailed information about a single staff user. Reference: https://docs.ghost.org/admin-api/users",
     readParams,
     async (args, _extra) => {
       const user = await ghostApiClient.users.read(args);
@@ -69,6 +71,7 @@ export function registerUserTools(server: McpServer) {
   // Edit user
   server.tool(
     "users_edit",
+    "Update an existing staff user by ID with new profile information or settings. Can modify user name, bio, profile image, social links, and other profile details. Cannot change email or role through this endpoint. Reference: https://docs.ghost.org/admin-api/users",
     editParams,
     async (args, _extra) => {
       const user = await ghostApiClient.users.edit(args);
@@ -86,6 +89,7 @@ export function registerUserTools(server: McpServer) {
   // Delete user
   server.tool(
     "users_delete",
+    "Permanently delete a staff user by ID. This removes the user from your Ghost site and revokes their access. Note: The Ghost API may not support user deletion via integrations - this tool may return an error. Reference: https://docs.ghost.org/admin-api/users",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.users.delete(args);

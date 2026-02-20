@@ -47,6 +47,7 @@ export function registerTierTools(server: McpServer) {
   // Browse tiers
   server.tool(
     "tiers_browse",
+    "Browse and list membership tiers with filtering and pagination options. Tiers define subscription levels and pricing for paid memberships in Ghost. Supports filtering by type and status. Reference: https://docs.ghost.org/admin-api/tiers",
     browseParams,
     async (args, _extra) => {
       const tiers = await ghostApiClient.tiers.browse(args);
@@ -64,6 +65,7 @@ export function registerTierTools(server: McpServer) {
   // Read tier
   server.tool(
     "tiers_read",
+    "Read a specific membership tier by ID. Returns complete tier data including name, description, pricing, benefits, and configuration settings. Use this to get detailed information about a single tier. Reference: https://docs.ghost.org/admin-api/tiers",
     readParams,
     async (args, _extra) => {
       const tier = await ghostApiClient.tiers.read(args);
@@ -81,6 +83,7 @@ export function registerTierTools(server: McpServer) {
   // Add tier
   server.tool(
     "tiers_add",
+    "Create a new membership tier with pricing and benefits. Tiers define subscription levels for paid memberships including monthly/yearly pricing, trial periods, and member benefits. Can set visibility and welcome page settings. Reference: https://docs.ghost.org/admin-api/tiers",
     addParams,
     async (args, _extra) => {
       const tier = await ghostApiClient.tiers.add(args);
@@ -98,6 +101,7 @@ export function registerTierTools(server: McpServer) {
   // Edit tier
   server.tool(
     "tiers_edit",
+    "Update an existing membership tier by ID with new pricing, benefits, or settings. Can modify tier name, description, pricing, trial periods, and visibility. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/tiers",
     editParams,
     async (args, _extra) => {
       const tier = await ghostApiClient.tiers.edit(args);
@@ -115,6 +119,7 @@ export function registerTierTools(server: McpServer) {
   // Delete tier
   server.tool(
     "tiers_delete",
+    "Permanently delete a membership tier by ID. This removes the tier and may affect existing member subscriptions. Note: The Ghost API may not support tier deletion - this tool may return an error. Reference: https://docs.ghost.org/admin-api/tiers",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.tiers.delete(args);

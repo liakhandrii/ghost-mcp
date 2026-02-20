@@ -35,6 +35,7 @@ export function registerTagTools(server: McpServer) {
   // Browse tags
   server.tool(
     "tags_browse",
+    "Browse and list tags with filtering, pagination, and sorting options. Tags are used to categorize and organize posts in Ghost. Supports filtering by visibility and other tag properties. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     browseParams,
     async (args, _extra) => {
       const tags = await ghostApiClient.tags.browse(args);
@@ -52,6 +53,7 @@ export function registerTagTools(server: McpServer) {
   // Read tag
   server.tool(
     "tags_read",
+    "Read a specific tag by ID or slug. Returns complete tag data including name, description, metadata, and usage statistics. Use this to get detailed information about a single tag. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     readParams,
     async (args, _extra) => {
       const tag = await ghostApiClient.tags.read(args);
@@ -69,6 +71,7 @@ export function registerTagTools(server: McpServer) {
   // Add tag
   server.tool(
     "tags_add",
+    "Create a new tag with name and optional metadata. Tags help organize and categorize posts for better content discovery. Can set description, color, visibility, and SEO metadata. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     addParams,
     async (args, _extra) => {
       const tag = await ghostApiClient.tags.add(args);
@@ -86,6 +89,7 @@ export function registerTagTools(server: McpServer) {
   // Edit tag
   server.tool(
     "tags_edit",
+    "Update an existing tag by ID with new information or metadata. Can modify tag name, description, color, visibility, and SEO settings. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     editParams,
     async (args, _extra) => {
       const tag = await ghostApiClient.tags.edit(args);
@@ -103,6 +107,7 @@ export function registerTagTools(server: McpServer) {
   // Delete tag
   server.tool(
     "tags_delete",
+    "Permanently delete a tag by ID. This removes the tag from your Ghost site and unassigns it from all posts. This action cannot be undone. Reference: https://docs.ghost.org/admin-api (tags endpoint)",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.tags.delete(args);

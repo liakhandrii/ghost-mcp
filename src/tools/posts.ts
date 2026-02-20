@@ -35,7 +35,8 @@ const deleteParams = {
 export function registerPostTools(server: McpServer) {
   // Browse posts
   server.tool(
-    "posts_browse",
+    "posts_browse", 
+    "Browse and list posts with filtering, pagination, and sorting options. Posts are the primary content resource in Ghost for publishing articles and content. Supports parameters like filter, limit, page, order, and include for customizing results. Reference: https://docs.ghost.org/admin-api/posts",
     browseParams,
     async (args, _extra) => {
       const posts = await ghostApiClient.posts.browse(args);
@@ -53,6 +54,7 @@ export function registerPostTools(server: McpServer) {
   // Read post
   server.tool(
     "posts_read",
+    "Read a specific post by ID or slug. Returns complete post data including content, metadata, tags, authors, and publishing status. Use this to retrieve detailed information about a single post. Reference: https://docs.ghost.org/admin-api/posts",
     readParams,
     async (args, _extra) => {
       const post = await ghostApiClient.posts.read(args);
@@ -70,6 +72,7 @@ export function registerPostTools(server: McpServer) {
   // Add post
   server.tool(
     "posts_add",
+    "Create a new post with title, content, and metadata. Supports both HTML and Lexical content formats, along with publishing options like status, visibility, and scheduling. Can set tags, authors, featured images, and SEO metadata. Reference: https://docs.ghost.org/admin-api/posts",
     addParams,
     async (args, _extra) => {
       // If html is present, use source: "html" to ensure Ghost uses the html content
@@ -89,6 +92,7 @@ export function registerPostTools(server: McpServer) {
   // Edit post
   server.tool(
     "posts_edit",
+    "Update an existing post by ID with new content, metadata, or publishing settings. Supports updating title, content, tags, authors, status, and all other post properties. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/posts",
     editParams,
     async (args, _extra) => {
       // If html is present, use source: "html" to ensure Ghost uses the html content for updates
@@ -108,6 +112,7 @@ export function registerPostTools(server: McpServer) {
   // Delete post
   server.tool(
     "posts_delete",
+    "Permanently delete a post by ID. This action cannot be undone and will remove the post from your Ghost site completely. Use with caution as deleted posts cannot be recovered. Reference: https://docs.ghost.org/admin-api/posts",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.posts.delete(args);

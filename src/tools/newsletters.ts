@@ -60,6 +60,7 @@ export function registerNewsletterTools(server: McpServer) {
   // Browse newsletters
   server.tool(
     "newsletters_browse",
+    "Browse and list newsletters with filtering and pagination options. Newsletters define email publication settings and branding for sending posts to subscribers. Supports filtering by status and visibility. Reference: https://docs.ghost.org/admin-api/newsletters",
     browseParams,
     async (args, _extra) => {
       const newsletters = await ghostApiClient.newsletters.browse(args);
@@ -77,6 +78,7 @@ export function registerNewsletterTools(server: McpServer) {
   // Read newsletter
   server.tool(
     "newsletters_read",
+    "Read a specific newsletter by ID. Returns complete newsletter data including name, description, sender settings, design options, and subscriber preferences. Use this to get detailed information about a single newsletter. Reference: https://docs.ghost.org/admin-api/newsletters",
     readParams,
     async (args, _extra) => {
       const newsletter = await ghostApiClient.newsletters.read(args);
@@ -94,6 +96,7 @@ export function registerNewsletterTools(server: McpServer) {
   // Add newsletter
   server.tool(
     "newsletters_add",
+    "Create a new newsletter with name and email settings. Newsletters define how posts are sent to subscribers including sender name, reply-to address, and design preferences. Can configure header, footer, and subscription settings. Reference: https://docs.ghost.org/admin-api/newsletters",
     addParams,
     async (args, _extra) => {
       const newsletter = await ghostApiClient.newsletters.add(args);
@@ -111,6 +114,7 @@ export function registerNewsletterTools(server: McpServer) {
   // Edit newsletter
   server.tool(
     "newsletters_edit",
+    "Update an existing newsletter by ID with new settings or design options. Can modify newsletter name, sender details, design preferences, and subscription settings. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/newsletters",
     editParams,
     async (args, _extra) => {
       const newsletter = await ghostApiClient.newsletters.edit(args);
@@ -128,6 +132,7 @@ export function registerNewsletterTools(server: McpServer) {
   // Delete newsletter
   server.tool(
     "newsletters_delete",
+    "Permanently delete a newsletter by ID. This removes the newsletter configuration and may affect email sending for associated posts. Note: The Ghost API may not support newsletter deletion - this tool may return an error. Reference: https://docs.ghost.org/admin-api/newsletters",
     deleteParams,
     async (args, _extra) => {
       await ghostApiClient.newsletters.delete(args);
