@@ -36,10 +36,16 @@ export function registerPostTools(server: McpServer) {
   // Browse posts
   server.tool(
     "posts_browse", 
-    "Browse and list posts with filtering, pagination, and sorting options. Posts are the primary content resource in Ghost for publishing articles and content. Supports parameters like filter, limit, page, order, and include for customizing results. Reference: https://docs.ghost.org/admin-api/posts",
+    "Browse and list posts with essential fields optimized for listing and discovery. Returns lightweight post data including title, status, dates, and primary author/tag. Use posts_read for full post details including content and complete metadata. Reference: https://docs.ghost.org/admin-api/posts",
     browseParams,
     async (args, _extra) => {
-      const posts = await ghostApiClient.posts.browse(args);
+      // Optimize browse to return only essential fields for listing
+      const optimizedArgs = {
+        ...args,
+        fields: 'id,slug,title,url,status,visibility,featured,published_at,updated_at,excerpt,feature_image',
+        include: 'primary_author,primary_tag'
+      };
+      const posts = await ghostApiClient.posts.browse(optimizedArgs);
       return {
         content: [
           {
