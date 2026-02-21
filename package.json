@@ -13,7 +13,12 @@
         "build": "tsc",
         "start": "node build/server.js",
         "prepare": "npm run build",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "pretest": "./scripts/start-ghost.sh",
+        "test": "vitest run",
+        "posttest": "./scripts/stop-ghost.sh",
+        "test:watch": "vitest",
+        "ghost:start": "./scripts/start-ghost.sh",
+        "ghost:stop": "./scripts/stop-ghost.sh"
     },
     "publishConfig": {
         "access": "public"
@@ -31,6 +36,7 @@
     "devDependencies": {
         "@types/axios": "^0.9.36",
         "@types/node": "^22.14.1",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "vitest": "^4.0.18"
     }
 }

@@ -13,3 +13,5 @@ wheels/
 node_modules/
 build/
 knowledge/
+.ghost-api-key
+/*.tgz
