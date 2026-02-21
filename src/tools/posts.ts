@@ -40,6 +40,13 @@ const syncToGhostParams = {
   ids: z.array(z.string()).optional(),
 };
 
+async function resolveFileParam(value: string | undefined): Promise<string | undefined> {
+  if (!value?.startsWith("file://")) return value;
+  const filePath = value.slice(7);
+  if (!path.isAbsolute(filePath)) throw new Error(`file:// path must be absolute: ${filePath}`);
+  return await fs.readFile(filePath, "utf-8");
+}
+
 export function registerPostTools(server: McpServer) {
   // Browse posts
   server.tool(
@@ -89,17 +96,18 @@ export function registerPostTools(server: McpServer) {
     "Create a new post with title, content, and metadata. Supports both HTML and Lexical content formats, along with publishing options like status, visibility, and scheduling. Can set tags, authors, featured images, and SEO metadata. Reference: https://docs.ghost.org/admin-api/posts",
     addParams,
     async (args, _extra) => {
-      // If html is present, use source: "html" to ensure Ghost uses the html content
-      const options = args.html ? { source: "html" } : undefined;
-      const post = await ghostApiClient.posts.add(args, options);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(post, null, 2),
-          },
-        ],
-      };
+      try {
+        const resolved = { ...args };
+        if (args.html !== undefined) resolved.html = await resolveFileParam(args.html);
+        if (args.lexical !== undefined) resolved.lexical = await resolveFileParam(args.lexical);
+        const options: Record<string, string> = {};
+        if (resolved.html) options.source = "html";
+        if (resolved.html) options.formats = "html";
+        const post = await ghostApiClient.posts.add(resolved, Object.keys(options).length ? options : undefined);
+        return { content: [{ type: "text", text: JSON.stringify(post, null, 2) }] };
+      } catch (err: any) {
+        return { isError: true, content: [{ type: "text", text: err.message }] };
+      }
     }
   );
 
@@ -109,17 +117,18 @@ export function registerPostTools(server: McpServer) {
     "Update an existing post by ID with new content, metadata, or publishing settings. Supports updating title, content, tags, authors, status, and all other post properties. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/posts",
     editParams,
     async (args, _extra) => {
-      // If html is present, use source: "html" to ensure Ghost uses the html content for updates
-      const options = args.html ? { source: "html" } : undefined;
-      const post = await ghostApiClient.posts.edit(args, options);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(post, null, 2),
-          },
-        ],
-      };
+      try {
+        const resolved = { ...args };
+        if (args.html !== undefined) resolved.html = await resolveFileParam(args.html);
+        if (args.lexical !== undefined) resolved.lexical = await resolveFileParam(args.lexical);
+        const options: Record<string, string> = {};
+        if (resolved.html) options.source = "html";
+        if (resolved.html) options.formats = "html";
+        const post = await ghostApiClient.posts.edit(resolved, Object.keys(options).length ? options : undefined);
+        return { content: [{ type: "text", text: JSON.stringify(post, null, 2) }] };
+      } catch (err: any) {
+        return { isError: true, content: [{ type: "text", text: err.message }] };
+      }
     }
   );
 

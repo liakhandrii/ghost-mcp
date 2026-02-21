@@ -24,6 +24,12 @@ When the user requests to create a new post, the system shall accept title, cont
 
 Where HTML content is provided, the system shall use source: "html" to ensure Ghost processes the HTML content.
 
+Where the html or lexical parameter value starts with "file://", the system shall treat the remainder as an absolute file path, read the file content, and use it as the parameter value.
+
+Where a "file://" path is provided, the system shall only accept absolute paths. If the path is not absolute, the system shall return an error. The system shall use Node.js `path.isAbsolute()` to determine whether the path is absolute.
+
+Where a "file://" path is provided and the file does not exist or cannot be read, the system shall return an error.
+
 The system shall support setting tags, authors, featured images, status, visibility, and SEO metadata.
 
 ### posts_edit
@@ -31,6 +37,12 @@ The system shall support setting tags, authors, featured images, status, visibil
 When the user requests to update an existing post by ID, the system shall accept updated content, metadata, or publishing settings.
 
 Where HTML content is provided, the system shall use source: "html" to ensure Ghost processes the HTML content.
+
+Where the html or lexical parameter value starts with "file://", the system shall treat the remainder as an absolute file path, read the file content, and use it as the parameter value.
+
+Where a "file://" path is provided, the system shall only accept absolute paths. If the path is not absolute, the system shall return an error. The system shall use Node.js `path.isAbsolute()` to determine whether the path is absolute.
+
+Where a "file://" path is provided and the file does not exist or cannot be read, the system shall return an error.
 
 Where updated_at is provided, the system shall use it for conflict detection.
 

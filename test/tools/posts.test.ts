@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { createTestClient } from '../setup'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 
 const GHOST_DIR = path.resolve('ghost/posts')
@@ -423,6 +424,130 @@ describe('posts sync tools', () => {
 
       expect(report).toMatch(/sync/i)
       expect(report).toMatch(/skip/i)
+    })
+  })
+})
+
+describe('posts file:// support', () => {
+  let client: Client
+  let tmpDir: string
+
+  beforeAll(async () => {
+    client = await createTestClient()
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-mcp-test-'))
+  })
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // --- posts_add with file:// ---
+
+  describe('posts_add', () => {
+    it('reads html content from an absolute file:// path', async () => {
+      const filePath = path.join(tmpDir, 'add-html.html')
+      fs.writeFileSync(filePath, '<p>Content from file</p>')
+
+      const result = await callTool(client, 'posts_add', {
+        title: 'File HTML Add Test',
+        html: `file://${filePath}`,
+        status: 'draft',
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Content from file')
+    })
+
+    it('reads lexical content from an absolute file:// path', async () => {
+      const lexicalData = JSON.stringify({ root: { children: [{ children: [], direction: null, format: '', indent: 0, type: 'paragraph', version: 1 }], direction: null, format: '', indent: 0, type: 'root', version: 1 } })
+      const filePath = path.join(tmpDir, 'add-lexical.json')
+      fs.writeFileSync(filePath, lexicalData)
+
+      const result = await callTool(client, 'posts_add', {
+        title: 'File Lexical Add Test',
+        lexical: `file://${filePath}`,
+        status: 'draft',
+      })
+      const post = parseResult(result)
+      expect(post.lexical).toBeDefined()
+    })
+
+    it('returns an error for a relative file:// path', async () => {
+      const result = await callTool(client, 'posts_add', {
+        title: 'Relative Path Test',
+        html: 'file://relative/path.html',
+        status: 'draft',
+      })
+      expect(result.isError).toBe(true)
+    })
+
+    it('returns an error when the file:// path does not exist', async () => {
+      const result = await callTool(client, 'posts_add', {
+        title: 'Missing File Test',
+        html: 'file:///nonexistent/path/to/file.html',
+        status: 'draft',
+      })
+      expect(result.isError).toBe(true)
+    })
+  })
+
+  // --- posts_edit with file:// ---
+
+  describe('posts_edit', () => {
+    let editPost: any
+
+    beforeAll(async () => {
+      const result = await callTool(client, 'posts_add', {
+        title: 'File Edit Test Post',
+        html: '<p>Original content</p>',
+        status: 'draft',
+      })
+      editPost = parseResult(result)
+    })
+
+    it('reads html content from an absolute file:// path', async () => {
+      const filePath = path.join(tmpDir, 'edit-html.html')
+      fs.writeFileSync(filePath, '<p>Edited from file</p>')
+
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        html: `file://${filePath}`,
+        updated_at: editPost.updated_at,
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Edited from file')
+      editPost = post
+    })
+
+    it('reads lexical content from an absolute file:// path', async () => {
+      const lexicalData = JSON.stringify({ root: { children: [{ children: [], direction: null, format: '', indent: 0, type: 'paragraph', version: 1 }], direction: null, format: '', indent: 0, type: 'root', version: 1 } })
+      const filePath = path.join(tmpDir, 'edit-lexical.json')
+      fs.writeFileSync(filePath, lexicalData)
+
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        lexical: `file://${filePath}`,
+        updated_at: editPost.updated_at,
+      })
+      const post = parseResult(result)
+      expect(post.lexical).toBeDefined()
+    })
+
+    it('returns an error for a relative file:// path', async () => {
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        html: 'file://relative/path.html',
+        updated_at: editPost.updated_at,
+      })
+      expect(result.isError).toBe(true)
+    })
+
+    it('returns an error when the file:// path does not exist', async () => {
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        html: 'file:///nonexistent/path/to/file.html',
+        updated_at: editPost.updated_at,
+      })
+      expect(result.isError).toBe(true)
     })
   })
 })
