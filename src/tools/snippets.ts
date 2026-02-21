@@ -1,338 +1,126 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { GHOST_API_URL } from "../config";
+import { execFile } from "child_process";
 
-// Session management
-let sessionCookie: string | null = null;
-
-async function authenticate(): Promise<string> {
-  const username = process.env.GHOST_USERNAME;
-  const password = process.env.GHOST_PASSWORD;
-  
-  if (!username || !password) {
-    throw new Error("Snippets require session-based authentication. Please set GHOST_USERNAME and GHOST_PASSWORD environment variables.");
+async function safariRequest(url: string, method = "GET", body?: string): Promise<any> {
+  let js: string;
+  if (body) {
+    js = `(function(){var x=new XMLHttpRequest();x.open("${method}","${url}",false);x.setRequestHeader("Content-Type","application/json");x.withCredentials=true;x.send(${JSON.stringify(body)});return x.status+"\\n"+x.responseText;})()`;
+  } else {
+    js = `(function(){var x=new XMLHttpRequest();x.open("${method}","${url}",false);x.withCredentials=true;x.send();return x.status+"\\n"+x.responseText;})()`;
   }
 
-  const response = await fetch(`${GHOST_API_URL}/ghost/api/admin/session/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      username,
-      password,
-    }),
-  });
+  const escapedJs = js.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const ghostOrigin = GHOST_API_URL.replace(/\/$/, "");
 
-  if (!response.ok) {
-    throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
-  }
+  // Ensure Safari has a tab on the Ghost origin, then run the XHR
+  const script = `
+tell application "Safari"
+  if (count of windows) = 0 then make new document
+  set theTab to current tab of front window
+  set tabURL to URL of theTab
+  if tabURL does not start with "${ghostOrigin}" then
+    set URL of theTab to "${ghostOrigin}/ghost/"
+    delay 2
+  end if
+  return do JavaScript "${escapedJs}" in theTab
+end tell
+  `;
 
-  const setCookie = response.headers.get('set-cookie');
-  if (!setCookie) {
-    throw new Error('No session cookie received from authentication');
-  }
-
-  sessionCookie = setCookie.split(';')[0];
-  return sessionCookie;
-}
-
-async function makeAuthenticatedRequest(url: string, options: RequestInit = {}): Promise<Response> {
-  const username = process.env.GHOST_USERNAME;
-  const password = process.env.GHOST_PASSWORD;
-  
-  if (!username || !password) {
-    throw new Error("Snippets require session-based authentication. Please set GHOST_USERNAME and GHOST_PASSWORD environment variables.");
-  }
-
-  if (!sessionCookie) {
-    await authenticate();
-  }
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      'Cookie': sessionCookie!,
-    },
-  });
-
-  if (response.status === 401) {
-    // Re-authenticate and retry once
-    await authenticate();
-    return fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Cookie': sessionCookie!,
-      },
+  const raw = await new Promise<string>((resolve, reject) => {
+    execFile("osascript", ["-e", script], { timeout: 15000 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout.trim());
     });
-  }
+  });
 
-  return response;
+  const newlineIdx = raw.indexOf("\n");
+  const status = parseInt(raw.substring(0, newlineIdx), 10);
+  const text = raw.substring(newlineIdx + 1);
+
+  if (status === 0) throw new Error(`Safari fetch failed: ${text}`);
+  if (status === 403 || status === 401) {
+    throw new Error("Not signed in to Ghost. Please sign in at " + GHOST_API_URL + "/ghost/ in Safari first.");
+  }
+  if (status >= 400) throw new Error(`Ghost API error ${status}: ${text}`);
+
+  return text ? JSON.parse(text) : null;
 }
 
-// Parameter schemas
 const browseParams = {
   limit: z.number().optional(),
   page: z.number().optional(),
 };
-const readParams = {
-  id: z.string(),
-};
+const readParams = { id: z.string() };
 const addParams = {
   name: z.string(),
-  lexical: z.union([z.string(), z.object({})]),
+  lexical: z.union([z.string(), z.record(z.unknown())]),
 };
 const editParams = {
   id: z.string(),
   name: z.string().optional(),
-  lexical: z.union([z.string(), z.object({})]).optional(),
+  lexical: z.union([z.string(), z.record(z.unknown())]).optional(),
 };
-const deleteParams = {
-  id: z.string(),
-};
+const deleteParams = { id: z.string() };
+
+function ok(text: string) {
+  return { content: [{ type: "text" as const, text }] };
+}
+function err(error: unknown) {
+  return { content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }] };
+}
 
 export function registerSnippetTools(server: McpServer) {
-  // Browse snippets
-  server.tool(
-    "snippets_browse",
-    "Browse and list Ghost CMS snippets with content fields. Snippets are reusable content blocks for the Ghost editor.",
-    browseParams,
-    async (args, _extra) => {
-      try {
-        const params = new URLSearchParams();
-        params.append('formats', 'mobiledoc,lexical');
-        if (args.limit) params.append('limit', args.limit.toString());
-        if (args.page) params.append('page', args.page.toString());
+  if (process.platform !== "darwin") return;
 
-        const response = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/?${params}`
-        );
+  server.tool("snippets_browse", "Browse Ghost CMS snippets. Requires being signed in to Ghost in Safari.", browseParams, async (args) => {
+    try {
+      const params = new URLSearchParams({ formats: "mobiledoc,lexical" });
+      if (args.limit) params.set("limit", args.limit.toString());
+      if (args.page) params.set("page", args.page.toString());
+      const data = await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/?${params}`);
+      return ok(JSON.stringify(data.snippets || [], null, 2));
+    } catch (e) { return err(e); }
+  });
 
-        if (!response.ok) {
-          throw new Error(`Failed to browse snippets: ${response.status} ${response.statusText}`);
-        }
+  server.tool("snippets_read", "Read a Ghost CMS snippet by ID.", readParams, async (args) => {
+    try {
+      const data = await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/?formats=mobiledoc,lexical`);
+      return ok(JSON.stringify(data.snippets?.[0] || data, null, 2));
+    } catch (e) { return err(e); }
+  });
 
-        const data = await response.json();
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(data.snippets || [], null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    }
-  );
+  server.tool("snippets_add", "Create a Ghost CMS snippet.", addParams, async (args) => {
+    try {
+      const lexical = typeof args.lexical === "object" ? JSON.stringify(args.lexical) : args.lexical;
+      const body = JSON.stringify({ snippets: [{ name: args.name, mobiledoc: "{}", lexical }] });
+      const data = await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/`, "POST", body);
+      return ok(JSON.stringify(data.snippets?.[0] || data, null, 2));
+    } catch (e) { return err(e); }
+  });
 
-  // Read snippet
-  server.tool(
-    "snippets_read",
-    "Read a specific Ghost CMS snippet by ID with full content fields including mobiledoc and lexical formats.",
-    readParams,
-    async (args, _extra) => {
-      try {
-        const params = new URLSearchParams();
-        params.append('formats', 'mobiledoc,lexical');
+  server.tool("snippets_edit", "Update a Ghost CMS snippet by ID.", editParams, async (args) => {
+    try {
+      const existing = await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/?formats=mobiledoc,lexical`);
+      const s = existing.snippets?.[0];
+      if (!s) throw new Error("Snippet not found");
+      const payload = {
+        name: args.name ?? s.name,
+        mobiledoc: s.mobiledoc,
+        lexical: args.lexical !== undefined
+          ? (typeof args.lexical === "object" ? JSON.stringify(args.lexical) : args.lexical)
+          : s.lexical,
+      };
+      const data = await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/`, "PUT", JSON.stringify({ snippets: [payload] }));
+      return ok(JSON.stringify(data.snippets?.[0] || data, null, 2));
+    } catch (e) { return err(e); }
+  });
 
-        const response = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/?${params}`
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to read snippet: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(data.snippets?.[0] || data, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
-  // Add snippet
-  server.tool(
-    "snippets_add",
-    "Create a new Ghost CMS snippet with name and lexical content. Lexical can be provided as a string or object (will be auto-stringified).",
-    addParams,
-    async (args, _extra) => {
-      try {
-        const lexical = typeof args.lexical === 'object' ? JSON.stringify(args.lexical) : args.lexical;
-        
-        const response = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              snippets: [{
-                name: args.name,
-                mobiledoc: "{}",
-                lexical,
-              }],
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to create snippet: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(data.snippets?.[0] || data, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
-  // Edit snippet
-  server.tool(
-    "snippets_edit",
-    "Update an existing Ghost CMS snippet by ID. Can update name and/or lexical content.",
-    editParams,
-    async (args, _extra) => {
-      try {
-        // First, read the existing snippet to get current values
-        const readResponse = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/?formats=mobiledoc,lexical`
-        );
-
-        if (!readResponse.ok) {
-          throw new Error(`Failed to read existing snippet: ${readResponse.status} ${readResponse.statusText}`);
-        }
-
-        const readData = await readResponse.json();
-        const existingSnippet = readData.snippets?.[0];
-        
-        if (!existingSnippet) {
-          throw new Error('Snippet not found');
-        }
-
-        // Merge the changes with existing data
-        const payload: any = {
-          name: args.name !== undefined ? args.name : existingSnippet.name,
-          mobiledoc: existingSnippet.mobiledoc,
-          lexical: args.lexical !== undefined 
-            ? (typeof args.lexical === 'object' ? JSON.stringify(args.lexical) : args.lexical)
-            : existingSnippet.lexical,
-        };
-
-        const response = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ snippets: [payload] }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to update snippet: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(data.snippets?.[0] || data, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    }
-  );
-
-  // Delete snippet
-  server.tool(
-    "snippets_delete",
-    "Delete a Ghost CMS snippet by ID. This permanently removes the snippet from Ghost.",
-    deleteParams,
-    async (args, _extra) => {
-      try {
-        const response = await makeAuthenticatedRequest(
-          `${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/`,
-          {
-            method: 'DELETE',
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to delete snippet: ${response.status} ${response.statusText}`);
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Snippet with ID ${args.id} has been deleted successfully.`,
-            },
-          ],
-        };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    }
-  );
+  server.tool("snippets_delete", "Delete a Ghost CMS snippet by ID.", deleteParams, async (args) => {
+    try {
+      await safariRequest(`${GHOST_API_URL}/ghost/api/admin/snippets/${args.id}/`, "DELETE");
+      return ok(`Snippet with ID ${args.id} has been deleted successfully.`);
+    } catch (e) { return err(e); }
+  });
 }

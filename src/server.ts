@@ -57,7 +57,7 @@ registerRoleTools(server);
 import { registerWebhookTools } from "./tools/webhooks";
 registerWebhookTools(server);
 import { registerSnippetTools } from "./tools/snippets";
-registerSnippetTools(server);
+if (process.platform === "darwin") registerSnippetTools(server);
 
 import { registerPrompts } from "./prompts";
 registerPrompts(server);
