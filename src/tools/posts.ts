@@ -2,6 +2,8 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ghostApiClient } from "../ghostApi";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 // Parameter schemas as ZodRawShape (object literals)
 const browseParams = {
@@ -30,6 +32,12 @@ const editParams = {
 };
 const deleteParams = {
   id: z.string(),
+};
+const syncFromGhostParams = {
+  postIds: z.array(z.string()).optional(),
+};
+const syncToGhostParams = {
+  postIds: z.array(z.string()).optional(),
 };
 
 export function registerPostTools(server: McpServer) {
@@ -130,6 +138,245 @@ export function registerPostTools(server: McpServer) {
           },
         ],
       };
+    }
+  );
+
+  // Sync from Ghost
+  server.tool(
+    "posts_sync_from_ghost",
+    "Sync posts from Ghost to local filesystem (ghost/posts/<slug>/ directories). Downloads posts as meta.json and lexical.json files. Supports syncing specific post IDs or all modified posts.",
+    syncFromGhostParams,
+    async (args, _extra) => {
+      const postsDir = "ghost/posts";
+      const report = { synced: 0, skipped: 0, errors: [] as any[] };
+
+      try {
+        // Fetch posts from Ghost
+        const ghostPosts = args.postIds
+          ? await Promise.all(args.postIds.map(id => ghostApiClient.posts.read({ id })))
+          : await ghostApiClient.posts.browse({ limit: "all" });
+        
+        const posts = Array.isArray(ghostPosts) ? ghostPosts : [ghostPosts];
+
+        for (const post of posts) {
+          try {
+            const postDir = path.join(postsDir, post.slug);
+            const metaPath = path.join(postDir, "meta.json");
+            const lexicalPath = path.join(postDir, "lexical.json");
+            let shouldSync = false;
+
+            // Check if local files exist
+            try {
+              const localMetaContent = await fs.readFile(metaPath, "utf-8");
+              const localMeta = JSON.parse(localMetaContent);
+
+              if (!localMeta.id || !localMeta.updated_at) {
+                report.errors.push({ id: post.id, title: post.title, error: "Missing id or updated_at" });
+                continue;
+              }
+
+              const localDate = new Date(localMeta.updated_at);
+              const ghostDate = new Date(post.updated_at);
+
+              if (localDate < ghostDate) {
+                shouldSync = true;
+              } else if (localDate.getTime() === ghostDate.getTime()) {
+                // Compare content
+                const { lexical: ghostLexical, ...ghostMeta } = post;
+                const ghostLexicalParsed = ghostLexical ? JSON.parse(ghostLexical) : null;
+                
+                let localLexicalParsed = null;
+                try {
+                  const localLexicalContent = await fs.readFile(lexicalPath, "utf-8");
+                  localLexicalParsed = JSON.parse(localLexicalContent);
+                } catch (err: any) {
+                  if (err.code !== "ENOENT") throw err;
+                }
+
+                if (JSON.stringify(localMeta) !== JSON.stringify(ghostMeta) || 
+                    JSON.stringify(localLexicalParsed) !== JSON.stringify(ghostLexicalParsed)) {
+                  report.errors.push({ id: post.id, title: post.title, error: "Conflict: same timestamp, different content" });
+                  continue;
+                } else {
+                  report.skipped++;
+                  continue;
+                }
+              } else {
+                report.errors.push({ id: post.id, title: post.title, error: "Conflict: local is newer than Ghost" });
+                continue;
+              }
+            } catch (err: any) {
+              if (err.code === "ENOENT") {
+                shouldSync = true;
+              } else if (err instanceof SyntaxError) {
+                report.errors.push({ id: post.id, title: post.title, error: "Invalid JSON in local file" });
+                continue;
+              } else {
+                throw err;
+              }
+            }
+
+            if (shouldSync) {
+              await fs.mkdir(postDir, { recursive: true });
+              
+              // Separate lexical from meta
+              const { lexical, ...meta } = post;
+              
+              // Save meta.json
+              await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
+              
+              // Save lexical.json if lexical exists
+              if (lexical) {
+                const lexicalParsed = JSON.parse(lexical);
+                await fs.writeFile(lexicalPath, JSON.stringify(lexicalParsed, null, 2));
+              }
+              
+              report.synced++;
+            }
+          } catch (err: any) {
+            report.errors.push({ id: post.id, title: post.title, error: err.message });
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(report, null, 2),
+            },
+          ],
+        };
+      } catch (err: any) {
+        throw new Error(`Sync failed: ${err.message}`);
+      }
+    }
+  );
+
+  // Sync to Ghost
+  server.tool(
+    "posts_sync_to_ghost",
+    "Sync posts from local filesystem (ghost/posts/<slug>/ directories) to Ghost. Only updates existing posts. Use posts_add to create new posts. Requires local updated_at to match Ghost for optimistic locking.",
+    syncToGhostParams,
+    async (args, _extra) => {
+      const postsDir = "ghost/posts";
+      const report = { synced: 0, skipped: 0, errors: [] as any[], info: [] as any[] };
+
+      try {
+        let slugs: string[];
+        
+        if (args.postIds) {
+          // Map post IDs to slugs by reading all directories
+          const allSlugs = await fs.readdir(postsDir);
+          slugs = [];
+          for (const slug of allSlugs) {
+            const metaPath = path.join(postsDir, slug, "meta.json");
+            try {
+              const metaContent = await fs.readFile(metaPath, "utf-8");
+              const meta = JSON.parse(metaContent);
+              if (args.postIds.includes(meta.id)) {
+                slugs.push(slug);
+              }
+            } catch (err) {
+              // Skip invalid directories
+            }
+          }
+        } else {
+          slugs = await fs.readdir(postsDir);
+        }
+
+        for (const slug of slugs) {
+          const postDir = path.join(postsDir, slug);
+          const metaPath = path.join(postDir, "meta.json");
+          const lexicalPath = path.join(postDir, "lexical.json");
+
+          try {
+            // Read meta.json
+            const metaContent = await fs.readFile(metaPath, "utf-8");
+            const localMeta = JSON.parse(metaContent);
+
+            if (!localMeta.id) {
+              report.skipped++;
+              report.info.push({ slug, message: "Missing id field. Use posts_add to create new posts." });
+              continue;
+            }
+
+            if (!localMeta.updated_at) {
+              report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Missing updated_at" });
+              continue;
+            }
+
+            // Read lexical.json if exists
+            let lexicalContent = null;
+            try {
+              const lexicalRaw = await fs.readFile(lexicalPath, "utf-8");
+              lexicalContent = JSON.parse(lexicalRaw);
+            } catch (err: any) {
+              if (err.code !== "ENOENT") {
+                if (err instanceof SyntaxError) {
+                  report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Invalid JSON in lexical.json" });
+                  continue;
+                }
+                throw err;
+              }
+            }
+
+            // Fetch from Ghost
+            let ghostPost;
+            try {
+              ghostPost = await ghostApiClient.posts.read({ id: localMeta.id });
+            } catch (err: any) {
+              if (err.message?.includes("404")) {
+                report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Post not found in Ghost (may have been deleted)" });
+                continue;
+              }
+              throw err;
+            }
+
+            // Check timestamps
+            if (localMeta.updated_at !== ghostPost.updated_at) {
+              report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Timestamp mismatch. Sync from Ghost first." });
+              continue;
+            }
+
+            // Compare content
+            const { lexical: ghostLexical, ...ghostMeta } = ghostPost;
+            const ghostLexicalParsed = ghostLexical ? JSON.parse(ghostLexical) : null;
+            
+            if (JSON.stringify(localMeta) === JSON.stringify(ghostMeta) && 
+                JSON.stringify(lexicalContent) === JSON.stringify(ghostLexicalParsed)) {
+              report.skipped++;
+              continue;
+            }
+
+            // Prepare update payload - remove lexical from meta if present, add stringified lexical
+            const { lexical: _, ...metaWithoutLexical } = localMeta as any;
+            const updatePayload = lexicalContent 
+              ? { ...metaWithoutLexical, lexical: JSON.stringify(lexicalContent) }
+              : metaWithoutLexical;
+
+            // Update in Ghost
+            await ghostApiClient.posts.edit(updatePayload);
+            report.synced++;
+          } catch (err: any) {
+            if (err instanceof SyntaxError) {
+              report.errors.push({ slug, error: "Invalid JSON in meta.json" });
+            } else {
+              report.errors.push({ slug, error: err.message });
+            }
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(report, null, 2),
+            },
+          ],
+        };
+      } catch (err: any) {
+        throw new Error(`Sync failed: ${err.message}`);
+      }
     }
   );
 }
