@@ -44,7 +44,9 @@ To use this with MCP clients, for instance, Claude Desktop, add the following to
         "env": {
             "GHOST_API_URL": "https://yourblog.com",
             "GHOST_ADMIN_API_KEY": "your_admin_api_key",
-            "GHOST_API_VERSION": "v5.0"
+            "GHOST_API_VERSION": "v5.0",
+            "GHOST_USERNAME": "your_ghost_admin_email (optional, for snippets)",
+            "GHOST_PASSWORD": "your_ghost_admin_password (optional, for snippets)"
         }
       }
     }
@@ -64,6 +66,7 @@ The following Ghost CMS resources are available through this MCP server:
 - **Tags**: Organizational tags for posts and content.
 - **Tiers**: Subscription tiers and plans for members.
 - **Users**: Admin users and staff accounts.
+- **Snippets**: Reusable content blocks for the Ghost editor (requires session auth — see below).
 - **Webhooks**: Automated event notifications to external services.
 
 ## Available Tools
@@ -126,6 +129,15 @@ This MCP server exposes a comprehensive set of tools for managing your Ghost CMS
 - **Read User**: Retrieve a user by ID or slug.
 - **Edit User**: Update user details.
 - **Delete User**: Remove a user.
+
+### Snippets
+- **Browse Snippets**: List snippets with pagination.
+- **Read Snippet**: Retrieve a snippet by ID.
+- **Add Snippet**: Create a new snippet.
+- **Edit Snippet**: Update snippet details.
+- **Delete Snippet**: Remove a snippet.
+
+> **Note:** Snippets use an undocumented Ghost API endpoint that rejects integration API tokens. `GHOST_USERNAME` and `GHOST_PASSWORD` must be set for snippets tools to work. On self-hosted Ghost 6+, you may need to disable `security.staffDeviceVerification` in your Ghost config.
 
 ### Webhooks
 - **Browse Webhooks**: List webhooks.

@@ -27,6 +27,44 @@ until curl -sf "${GHOST_URL}/ghost/api/admin/site/" >/dev/null 2>&1; do
 done
 echo "Ghost is up at ${GHOST_URL}"
 
+# Disable staff device verification
+echo "Disabling staff device verification..."
+docker exec "$CONTAINER_NAME" sh -c 'cat > /var/lib/ghost/config.production.json << EOF
+{
+  "url": "http://localhost:2368",
+  "server": {
+    "port": 2368,
+    "host": "::"
+  },
+  "mail": {
+    "transport": "Direct"
+  },
+  "logging": {
+    "transports": [
+      "file",
+      "stdout"
+    ]
+  },
+  "process": "systemd",
+  "security": {
+    "staffDeviceVerification": false
+  },
+  "paths": {
+    "contentPath": "/var/lib/ghost/content"
+  }
+}
+EOF'
+
+# Restart Ghost to apply config changes
+echo "Restarting Ghost to apply configuration..."
+docker restart "$CONTAINER_NAME"
+
+# Wait for Ghost to be ready again
+echo "Waiting for Ghost to be ready after restart..."
+until curl -sf "${GHOST_URL}/ghost/api/admin/site/" >/dev/null 2>&1; do
+  sleep 1
+done
+
 # Run setup
 echo "Running setup..."
 curl -sf "${GHOST_URL}/ghost/api/admin/authentication/setup/" \
@@ -79,6 +117,8 @@ cat > "$OUTPUT_FILE" <<EOF
 GHOST_API_URL=${GHOST_URL}
 GHOST_ADMIN_API_KEY=${ADMIN_API_KEY}
 GHOST_CONTENT_API_KEY=${CONTENT_API_KEY}
+GHOST_USERNAME=${ADMIN_EMAIL}
+GHOST_PASSWORD=${ADMIN_PASSWORD}
 EOF
 
 echo ""

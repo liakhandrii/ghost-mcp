@@ -27,6 +27,7 @@ export async function createTestClient(): Promise<Client> {
   const { registerInviteTools } = await import('../src/tools/invites')
   const { registerRoleTools } = await import('../src/tools/roles')
   const { registerWebhookTools } = await import('../src/tools/webhooks')
+  const { registerSnippetTools } = await import('../src/tools/snippets')
 
   const server = new McpServer({ name: 'ghost-mcp-test', version: '1.0.0' })
 
@@ -40,6 +41,7 @@ export async function createTestClient(): Promise<Client> {
   registerInviteTools(server)
   registerRoleTools(server)
   registerWebhookTools(server)
+  registerSnippetTools(server)
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
 
