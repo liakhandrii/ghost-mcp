@@ -4,6 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ghostApiClient } from "../ghostApi";
 import * as fs from "fs/promises";
 import * as path from "path";
+import MarkdownIt from "markdown-it";
+import { NodeHtmlMarkdown } from "node-html-markdown";
 
 // Parameter schemas as ZodRawShape (object literals)
 const browseParams = {
@@ -20,6 +22,7 @@ const addParams = {
   title: z.string(),
   html: z.string().optional(),
   lexical: z.string().optional(),
+  markdown: z.string().optional(),
   status: z.string().optional(),
 };
 const editParams = {
@@ -27,6 +30,7 @@ const editParams = {
   title: z.string().optional(),
   html: z.string().optional(),
   lexical: z.string().optional(),
+  markdown: z.string().optional(),
   status: z.string().optional(),
   updated_at: z.string(),
 };
@@ -35,10 +39,42 @@ const deleteParams = {
 };
 const syncFromGhostParams = {
   ids: z.array(z.string()).optional(),
+  format: z.enum(["lexical", "html", "markdown"]).optional(),
 };
 const syncToGhostParams = {
   ids: z.array(z.string()).optional(),
+  format: z.enum(["lexical", "html", "markdown"]).optional(),
 };
+
+// Markdown conversion functions
+function ghostHtmlToMarkdown(html: string): string {
+  const cards: string[] = [];
+  const prepped = html.replace(
+    /<!--kg-card-begin: html-->([\s\S]*?)<!--kg-card-end: html-->/g,
+    (m, content) => {
+      cards.push(content.trim());
+      return '<p>GHOSTCARDPLACEHOLDER' + (cards.length - 1) + '</p>';
+    }
+  );
+
+  let md = NodeHtmlMarkdown.translate(prepped);
+
+  cards.forEach((c, i) => {
+    md = md.replace(
+      'GHOSTCARDPLACEHOLDER' + i,
+      '\n<!--kg-card-begin: html-->\n' + c + '\n<!--kg-card-end: html-->\n'
+    );
+  });
+
+  return md;
+}
+
+function markdownToGhostHtml(markdown: string): string {
+  const md = new MarkdownIt({ html: true });
+  // Disable automatic header ID generation to match test expectations
+  md.disable(['linkify']);
+  return md.render(markdown);
+}
 
 async function resolveFileParam(value: string | undefined): Promise<string | undefined> {
   if (!value?.startsWith("file://")) return value;
@@ -78,7 +114,7 @@ export function registerPostTools(server: McpServer) {
     "Read a specific post by ID or slug. Returns complete post data including content, metadata, tags, authors, and publishing status. Use this to retrieve detailed information about a single post. Reference: https://docs.ghost.org/admin-api/posts",
     readParams,
     async (args, _extra) => {
-      const post = await ghostApiClient.posts.read(args);
+      const post = await ghostApiClient.posts.read(args, { formats: "html" });
       return {
         content: [
           {
@@ -93,13 +129,21 @@ export function registerPostTools(server: McpServer) {
   // Add post
   server.tool(
     "posts_add",
-    "Create a new post with title, content, and metadata. Supports both HTML and Lexical content formats, along with publishing options like status, visibility, and scheduling. Can set tags, authors, featured images, and SEO metadata. Reference: https://docs.ghost.org/admin-api/posts",
+    "Create a new post with title, content, and metadata. Supports HTML, Lexical, and Markdown content formats, along with publishing options like status, visibility, and scheduling. Can set tags, authors, featured images, and SEO metadata. Reference: https://docs.ghost.org/admin-api/posts",
     addParams,
     async (args, _extra) => {
       try {
         const resolved = { ...args };
         if (args.html !== undefined) resolved.html = await resolveFileParam(args.html);
         if (args.lexical !== undefined) resolved.lexical = await resolveFileParam(args.lexical);
+        if (args.markdown !== undefined) resolved.markdown = await resolveFileParam(args.markdown);
+        
+        // Convert markdown to HTML if provided
+        if (resolved.markdown) {
+          resolved.html = markdownToGhostHtml(resolved.markdown);
+          delete resolved.markdown;
+        }
+        
         const options: Record<string, string> = {};
         if (resolved.html) options.source = "html";
         if (resolved.html) options.formats = "html";
@@ -114,13 +158,21 @@ export function registerPostTools(server: McpServer) {
   // Edit post
   server.tool(
     "posts_edit",
-    "Update an existing post by ID with new content, metadata, or publishing settings. Supports updating title, content, tags, authors, status, and all other post properties. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/posts",
+    "Update an existing post by ID with new content, metadata, or publishing settings. Supports updating title, content (HTML, Lexical, or Markdown), tags, authors, status, and all other post properties. Use updated_at for conflict detection. Reference: https://docs.ghost.org/admin-api/posts",
     editParams,
     async (args, _extra) => {
       try {
         const resolved = { ...args };
         if (args.html !== undefined) resolved.html = await resolveFileParam(args.html);
         if (args.lexical !== undefined) resolved.lexical = await resolveFileParam(args.lexical);
+        if (args.markdown !== undefined) resolved.markdown = await resolveFileParam(args.markdown);
+        
+        // Convert markdown to HTML if provided
+        if (resolved.markdown) {
+          resolved.html = markdownToGhostHtml(resolved.markdown);
+          delete resolved.markdown;
+        }
+        
         const options: Record<string, string> = {};
         if (resolved.html) options.source = "html";
         if (resolved.html) options.formats = "html";
@@ -153,17 +205,23 @@ export function registerPostTools(server: McpServer) {
   // Sync from Ghost
   server.tool(
     "posts_sync_from_ghost",
-    "Sync posts from Ghost to local filesystem (ghost/posts/<slug>/ directories). Downloads posts as meta.json and lexical.json files. Supports syncing specific post IDs or all modified posts.",
+    "Sync posts from Ghost to local filesystem (ghost/posts/<slug>/ directories). Downloads posts as meta.json and content files (lexical.json, html.html, or markdown.md). Supports syncing specific post IDs or all modified posts.",
     syncFromGhostParams,
     async (args, _extra) => {
       const postsDir = "ghost/posts";
+      const format = args.format || "lexical";
+      const isHtml = format === "html";
+      const isMarkdown = format === "markdown";
+      const contentField = isHtml || isMarkdown ? "html" : "lexical";
+      const contentFile = isMarkdown ? "markdown.md" : (isHtml ? "html.html" : "lexical.json");
       const report = { synced: 0, skipped: 0, errors: [] as any[] };
 
       try {
-        // Fetch posts from Ghost
+        const browseOpts: any = { limit: "all" };
+        if (isHtml || isMarkdown) browseOpts.formats = "html";
         const ghostPosts = args.ids
-          ? await Promise.all(args.ids.map(id => ghostApiClient.posts.read({ id })))
-          : await ghostApiClient.posts.browse({ limit: "all" });
+          ? await Promise.all(args.ids.map(id => ghostApiClient.posts.read({ id }, (isHtml || isMarkdown) ? { formats: "html" } : undefined)))
+          : await ghostApiClient.posts.browse(browseOpts);
         
         const posts = Array.isArray(ghostPosts) ? ghostPosts : [ghostPosts];
 
@@ -171,10 +229,9 @@ export function registerPostTools(server: McpServer) {
           try {
             const postDir = path.join(postsDir, post.slug);
             const metaPath = path.join(postDir, "meta.json");
-            const lexicalPath = path.join(postDir, "lexical.json");
+            const contentPath = path.join(postDir, contentFile);
             let shouldSync = false;
 
-            // Check if local files exist
             try {
               const localMetaContent = await fs.readFile(metaPath, "utf-8");
               const localMeta = JSON.parse(localMetaContent);
@@ -190,20 +247,26 @@ export function registerPostTools(server: McpServer) {
               if (localDate < ghostDate) {
                 shouldSync = true;
               } else if (localDate.getTime() === ghostDate.getTime()) {
-                // Compare content
-                const { lexical: ghostLexical, ...ghostMeta } = post;
-                const ghostLexicalParsed = ghostLexical ? JSON.parse(ghostLexical) : null;
+                const { [contentField]: ghostContent, ...ghostMeta } = post as any;
+                let ghostContentParsed: any;
+                if (isMarkdown) {
+                  ghostContentParsed = ghostContent ? ghostHtmlToMarkdown(ghostContent) : "";
+                } else if (isHtml) {
+                  ghostContentParsed = ghostContent || "";
+                } else {
+                  ghostContentParsed = ghostContent ? JSON.parse(ghostContent) : null;
+                }
                 
-                let localLexicalParsed = null;
+                let localContent: any = null;
                 try {
-                  const localLexicalContent = await fs.readFile(lexicalPath, "utf-8");
-                  localLexicalParsed = JSON.parse(localLexicalContent);
+                  const raw = await fs.readFile(contentPath, "utf-8");
+                  localContent = (isHtml || isMarkdown) ? raw : JSON.parse(raw);
                 } catch (err: any) {
                   if (err.code !== "ENOENT") throw err;
                 }
 
                 if (JSON.stringify(localMeta) !== JSON.stringify(ghostMeta) || 
-                    JSON.stringify(localLexicalParsed) !== JSON.stringify(ghostLexicalParsed)) {
+                    ((isHtml || isMarkdown) ? localContent !== ghostContentParsed : JSON.stringify(localContent) !== JSON.stringify(ghostContentParsed))) {
                   report.errors.push({ id: post.id, title: post.title, error: "Conflict: same timestamp, different content" });
                   continue;
                 } else {
@@ -227,19 +290,17 @@ export function registerPostTools(server: McpServer) {
 
             if (shouldSync) {
               await fs.mkdir(postDir, { recursive: true });
-              
-              // Separate lexical from meta
-              const { lexical, ...meta } = post;
-              
-              // Save meta.json
+              const { [contentField]: content, ...meta } = post as any;
               await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
-              
-              // Save lexical.json if lexical exists
-              if (lexical) {
-                const lexicalParsed = JSON.parse(lexical);
-                await fs.writeFile(lexicalPath, JSON.stringify(lexicalParsed, null, 2));
+              if (content) {
+                if (isMarkdown) {
+                  await fs.writeFile(contentPath, ghostHtmlToMarkdown(content));
+                } else if (isHtml) {
+                  await fs.writeFile(contentPath, content);
+                } else {
+                  await fs.writeFile(contentPath, JSON.stringify(JSON.parse(content), null, 2));
+                }
               }
-              
               report.synced++;
             }
           } catch (err: any) {
@@ -249,14 +310,7 @@ export function registerPostTools(server: McpServer) {
 
         const output: Record<string, any> = { synced: report.synced, skipped: report.skipped };
         if (report.errors.length > 0) output.errors = report.errors;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(output, null, 2),
-            },
-          ],
-        };
+        return { content: [{ type: "text", text: JSON.stringify(output, null, 2) }] };
       } catch (err: any) {
         throw new Error(`Sync failed: ${err.message}`);
       }
@@ -270,6 +324,11 @@ export function registerPostTools(server: McpServer) {
     syncToGhostParams,
     async (args, _extra) => {
       const postsDir = "ghost/posts";
+      const format = args.format || "lexical";
+      const isHtml = format === "html";
+      const isMarkdown = format === "markdown";
+      const contentField = isHtml || isMarkdown ? "html" : "lexical";
+      const contentFile = isMarkdown ? "markdown.md" : (isHtml ? "html.html" : "lexical.json");
       const report = { synced: 0, skipped: 0, errors: [] as any[], info: [] as any[] };
 
       try {
@@ -278,14 +337,12 @@ export function registerPostTools(server: McpServer) {
         for (const slug of slugs) {
           const postDir = path.join(postsDir, slug);
           const metaPath = path.join(postDir, "meta.json");
-          const lexicalPath = path.join(postDir, "lexical.json");
+          const contentPath = path.join(postDir, contentFile);
 
           try {
-            // Read meta.json
             const metaContent = await fs.readFile(metaPath, "utf-8");
             const localMeta = JSON.parse(metaContent);
 
-            // Filter by ids if specified
             if (args.ids && localMeta.id && !args.ids.includes(localMeta.id)) {
               continue;
             }
@@ -301,25 +358,30 @@ export function registerPostTools(server: McpServer) {
               continue;
             }
 
-            // Read lexical.json if exists
-            let lexicalContent = null;
+            // Read content file if exists
+            let localContent: any = null;
             try {
-              const lexicalRaw = await fs.readFile(lexicalPath, "utf-8");
-              lexicalContent = JSON.parse(lexicalRaw);
+              const raw = await fs.readFile(contentPath, "utf-8");
+              if (isHtml || isMarkdown) {
+                localContent = raw;
+              } else {
+                localContent = JSON.parse(raw);
+              }
             } catch (err: any) {
               if (err.code !== "ENOENT") {
                 if (err instanceof SyntaxError) {
-                  report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Invalid JSON in lexical.json" });
+                  report.errors.push({ id: localMeta.id, title: localMeta.title, error: `Invalid JSON in ${contentFile}` });
                   continue;
                 }
                 throw err;
               }
+              // For markdown format, if markdown.md doesn't exist, we'll check later if there are other changes
             }
 
             // Fetch from Ghost
             let ghostPost;
             try {
-              ghostPost = await ghostApiClient.posts.read({ id: localMeta.id });
+              ghostPost = await ghostApiClient.posts.read({ id: localMeta.id }, (isHtml || isMarkdown) ? { formats: "html" } : undefined);
             } catch (err: any) {
               if (err.message?.includes("404")) {
                 report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Post not found in Ghost (may have been deleted)" });
@@ -328,30 +390,54 @@ export function registerPostTools(server: McpServer) {
               throw err;
             }
 
-            // Check timestamps
             if (localMeta.updated_at !== ghostPost.updated_at) {
               report.errors.push({ id: localMeta.id, title: localMeta.title, error: "Timestamp mismatch. Sync from Ghost first." });
               continue;
             }
 
             // Compare content
-            const { lexical: ghostLexical, ...ghostMeta } = ghostPost;
-            const ghostLexicalParsed = ghostLexical ? JSON.parse(ghostLexical) : null;
+            const { [contentField]: ghostContent, ...ghostMeta } = ghostPost as any;
+            let ghostContentParsed: any;
+            if (isMarkdown) {
+              ghostContentParsed = ghostContent ? ghostHtmlToMarkdown(ghostContent) : "";
+            } else if (isHtml) {
+              ghostContentParsed = ghostContent || "";
+            } else {
+              ghostContentParsed = ghostContent ? JSON.parse(ghostContent) : null;
+            }
             
-            if (JSON.stringify(localMeta) === JSON.stringify(ghostMeta) && 
-                JSON.stringify(lexicalContent) === JSON.stringify(ghostLexicalParsed)) {
+            // Strip content field from local meta for comparison
+            const { [contentField]: _ignored, ...localMetaClean } = localMeta as any;
+
+            const hasMetaChanges = JSON.stringify(localMetaClean) !== JSON.stringify(ghostMeta);
+            const hasContentChanges = localContent != null && 
+              ((isHtml || isMarkdown) ? localContent !== ghostContentParsed : JSON.stringify(localContent) !== JSON.stringify(ghostContentParsed));
+
+            if (!hasMetaChanges && !hasContentChanges) {
+              // If no changes and markdown.md is missing for markdown format, error
+              if (isMarkdown && localContent == null) {
+                report.errors.push({ id: localMeta.id, title: localMeta.title, error: "markdown.md does not exist" });
+                continue;
+              }
               report.skipped++;
               continue;
             }
 
-            // Prepare update payload - remove lexical from meta if present, add stringified lexical
-            const { lexical: _, ...metaWithoutLexical } = localMeta as any;
-            const updatePayload = lexicalContent 
-              ? { ...metaWithoutLexical, lexical: JSON.stringify(lexicalContent) }
-              : metaWithoutLexical;
+            // Build update payload — strip content field from meta
+            const { [contentField]: _stripped, ...metaWithoutContent } = localMeta as any;
+            const updatePayload: any = { ...metaWithoutContent };
+            if (localContent != null) {
+              if (isMarkdown) {
+                updatePayload.html = markdownToGhostHtml(localContent);
+              } else if (isHtml) {
+                updatePayload.html = localContent;
+              } else {
+                updatePayload.lexical = JSON.stringify(localContent);
+              }
+            }
 
-            // Update in Ghost
-            await ghostApiClient.posts.edit(updatePayload);
+            const editOpts = (isHtml || isMarkdown) ? { source: "html" } : undefined;
+            await ghostApiClient.posts.edit(updatePayload, editOpts);
             report.synced++;
           } catch (err: any) {
             if (err instanceof SyntaxError) {
@@ -365,14 +451,7 @@ export function registerPostTools(server: McpServer) {
         const output: Record<string, any> = { synced: report.synced, skipped: report.skipped };
         if (report.errors.length > 0) output.errors = report.errors;
         if (report.info.length > 0) output.info = report.info;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(output, null, 2),
-            },
-          ],
-        };
+        return { content: [{ type: "text", text: JSON.stringify(output, null, 2) }] };
       } catch (err: any) {
         throw new Error(`Sync failed: ${err.message}`);
       }

@@ -30,7 +30,10 @@
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.10.1",
         "@tryghost/admin-api": "^1.13.13",
+        "@types/markdown-it": "^14.1.2",
         "axios": "^1.8.4",
+        "markdown-it": "^14.1.1",
+        "node-html-markdown": "^2.0.0",
         "zod": "^3.24.3"
     },
     "devDependencies": {

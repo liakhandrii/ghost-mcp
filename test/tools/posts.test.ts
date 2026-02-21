@@ -29,6 +29,14 @@ function readLexical(slug: string) {
   return JSON.parse(fs.readFileSync(path.join(GHOST_DIR, slug, 'lexical.json'), 'utf-8'))
 }
 
+function readHtml(slug: string) {
+  return fs.readFileSync(path.join(GHOST_DIR, slug, 'html.html'), 'utf-8')
+}
+
+function readMarkdown(slug: string) {
+  return fs.readFileSync(path.join(GHOST_DIR, slug, 'markdown.md'), 'utf-8')
+}
+
 function writeMeta(slug: string, data: Record<string, unknown>) {
   const dir = path.join(GHOST_DIR, slug)
   fs.mkdirSync(dir, { recursive: true })
@@ -39,6 +47,18 @@ function writeLexical(slug: string, data: Record<string, unknown>) {
   const dir = path.join(GHOST_DIR, slug)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'lexical.json'), JSON.stringify(data, null, 2))
+}
+
+function writeHtml(slug: string, content: string) {
+  const dir = path.join(GHOST_DIR, slug)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'html.html'), content)
+}
+
+function writeMarkdown(slug: string, content: string) {
+  const dir = path.join(GHOST_DIR, slug)
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'markdown.md'), content)
 }
 
 function cleanGhostDir() {
@@ -457,6 +477,19 @@ describe('posts file:// support', () => {
       expect(post.html).toContain('Content from file')
     })
 
+    it('reads markdown content from an absolute file:// path', async () => {
+      const filePath = path.join(tmpDir, 'add-markdown.md')
+      fs.writeFileSync(filePath, '# Markdown from file\n\nContent from file')
+
+      const result = await callTool(client, 'posts_add', {
+        title: 'File Markdown Add Test',
+        markdown: `file://${filePath}`,
+        status: 'draft',
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Markdown from file')
+    })
+
     it('reads lexical content from an absolute file:// path', async () => {
       const lexicalData = JSON.stringify({ root: { children: [{ children: [], direction: null, format: '', indent: 0, type: 'paragraph', version: 1 }], direction: null, format: '', indent: 0, type: 'root', version: 1 } })
       const filePath = path.join(tmpDir, 'add-lexical.json')
@@ -518,6 +551,20 @@ describe('posts file:// support', () => {
       editPost = post
     })
 
+    it('reads markdown content from an absolute file:// path', async () => {
+      const filePath = path.join(tmpDir, 'edit-markdown.md')
+      fs.writeFileSync(filePath, '# Edited markdown\n\nEdited from file')
+
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        markdown: `file://${filePath}`,
+        updated_at: editPost.updated_at,
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Edited markdown')
+      editPost = post
+    })
+
     it('reads lexical content from an absolute file:// path', async () => {
       const lexicalData = JSON.stringify({ root: { children: [{ children: [], direction: null, format: '', indent: 0, type: 'paragraph', version: 1 }], direction: null, format: '', indent: 0, type: 'root', version: 1 } })
       const filePath = path.join(tmpDir, 'edit-lexical.json')
@@ -548,6 +595,440 @@ describe('posts file:// support', () => {
         updated_at: editPost.updated_at,
       })
       expect(result.isError).toBe(true)
+    })
+  })
+})
+
+describe('posts markdown support', () => {
+  let client: Client
+
+  beforeAll(async () => {
+    client = await createTestClient()
+  })
+
+  describe('posts_add', () => {
+    it('converts markdown to HTML and uploads with source: "html"', async () => {
+      const result = await callTool(client, 'posts_add', {
+        title: 'Markdown Add Test',
+        markdown: '# Hello Markdown\n\nThis is **bold** text.',
+        status: 'draft',
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Hello Markdown')
+      expect(post.html).toContain('<strong>bold</strong>')
+    })
+  })
+
+  describe('posts_edit', () => {
+    let editPost: any
+
+    beforeAll(async () => {
+      const result = await callTool(client, 'posts_add', {
+        title: 'Markdown Edit Test Post',
+        html: '<p>Original content</p>',
+        status: 'draft',
+      })
+      editPost = parseResult(result)
+    })
+
+    it('converts markdown to HTML and updates with source: "html"', async () => {
+      const result = await callTool(client, 'posts_edit', {
+        id: editPost.id,
+        markdown: '# Updated Markdown\n\nThis is *italic* text.',
+        updated_at: editPost.updated_at,
+      })
+      const post = parseResult(result)
+      expect(post.html).toContain('Updated Markdown')
+      expect(post.html).toContain('<em>italic</em>')
+    })
+  })
+})
+
+describe('posts sync tools with format: "html"', () => {
+  let client: Client
+  let testPost: any
+
+  beforeAll(async () => {
+    client = await createTestClient()
+
+    const result = await callTool(client, 'posts_add', {
+      title: 'HTML Format Sync Test',
+      html: '<p>Hello html format</p>',
+      status: 'draft',
+    })
+    testPost = parseResult(result)
+  })
+
+  afterEach(() => {
+    cleanGhostDir()
+  })
+
+  // --- posts_sync_from_ghost with format: "html" ---
+
+  describe('posts_sync_from_ghost', () => {
+    it('creates html.html instead of lexical.json when format is "html"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html' })
+
+      const slugDir = path.join(GHOST_DIR, testPost.slug)
+      expect(fs.existsSync(path.join(slugDir, 'meta.json'))).toBe(true)
+      expect(fs.existsSync(path.join(slugDir, 'html.html'))).toBe(true)
+      expect(fs.existsSync(path.join(slugDir, 'lexical.json'))).toBe(false)
+    })
+
+    it('meta.json excludes html field when format is "html"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+      const meta = readMeta(testPost.slug)
+
+      expect(meta.id).toBe(testPost.id)
+      expect(meta).not.toHaveProperty('html')
+    })
+
+    it('html.html contains the post html content', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+      const html = readHtml(testPost.slug)
+
+      expect(html).toContain('Hello html format')
+    })
+
+    it('syncs only specified post IDs with format "html"', async () => {
+      const result2 = await callTool(client, 'posts_add', {
+        title: 'HTML Format Post 2',
+        html: '<p>Second post</p>',
+        status: 'draft',
+      })
+      const post2 = parseResult(result2)
+
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      expect(fs.existsSync(path.join(GHOST_DIR, testPost.slug, 'html.html'))).toBe(true)
+      expect(fs.existsSync(path.join(GHOST_DIR, post2.slug))).toBe(false)
+    })
+
+    it('defaults to lexical format when format is not specified', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { ids: [testPost.id] })
+
+      const slugDir = path.join(GHOST_DIR, testPost.slug)
+      expect(fs.existsSync(path.join(slugDir, 'lexical.json'))).toBe(true)
+      expect(fs.existsSync(path.join(slugDir, 'html.html'))).toBe(false)
+    })
+
+    it('skips when local updated_at equals Ghost and html content is identical', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const result = await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toContain('skip')
+    })
+
+    it('errors when local updated_at equals Ghost but html content differs', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      // Modify html.html but keep same meta
+      writeHtml(testPost.slug, '<p>Locally modified html</p>')
+
+      const result = await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report.toLowerCase()).toContain('conflict')
+    })
+
+    it('updates local files when local updated_at is older than Ghost', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.updated_at = '2000-01-01T00:00:00.000Z'
+      writeMeta(testPost.slug, meta)
+
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const updatedMeta = readMeta(testPost.slug)
+      expect(updatedMeta.updated_at).not.toBe('2000-01-01T00:00:00.000Z')
+      expect(fs.existsSync(path.join(GHOST_DIR, testPost.slug, 'html.html'))).toBe(true)
+    })
+  })
+
+  // --- posts_sync_to_ghost with format: "html" ---
+
+  describe('posts_sync_to_ghost', () => {
+    it('reads html.html and syncs to Ghost with source: "html"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'HTML Sync To Ghost Test'
+      writeMeta(testPost.slug, meta)
+      writeHtml(testPost.slug, '<p>Updated html content</p>')
+
+      await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+
+      // Verify title via posts_read
+      const readResult = await callTool(client, 'posts_read', { id: testPost.id })
+      const ghostPost = parseResult(readResult)
+      expect(ghostPost.title).toBe('HTML Sync To Ghost Test')
+
+      // Verify html content by syncing back from Ghost
+      cleanGhostDir()
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+      const html = readHtml(testPost.slug)
+      expect(html).toContain('Updated html content')
+    })
+
+    it('ignores html field in meta.json when format is "html"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.html = '<p>Bogus html in meta</p>'
+      meta.title = 'HTML In Meta Ignored'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+      expect(report.toLowerCase()).not.toContain('error')
+    })
+
+    it('does not include html field when html.html does not exist', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      // Remove html.html
+      fs.unlinkSync(path.join(GHOST_DIR, testPost.slug, 'html.html'))
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'No HTML File'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+      expect(report.toLowerCase()).not.toContain('error')
+    })
+
+    it('skips when local updated_at equals Ghost and html content is identical', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toContain('skip')
+    })
+
+    it('errors when local updated_at does not match Ghost updated_at', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.updated_at = '2000-01-01T00:00:00.000Z'
+      meta.title = 'Stale HTML Update'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report.toLowerCase()).toContain('error')
+    })
+
+    it('returns a sync report with synced and skipped counts', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'html', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'HTML Report Test'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'html', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toMatch(/sync/i)
+      expect(report).toMatch(/skip/i)
+    })
+  })
+})
+
+describe('posts sync tools with format: "markdown"', () => {
+  let client: Client
+  let testPost: any
+
+  beforeAll(async () => {
+    client = await createTestClient()
+
+    const result = await callTool(client, 'posts_add', {
+      title: 'Markdown Format Sync Test',
+      html: '<h1>Hello markdown format</h1><p>This is <strong>bold</strong> text.</p>',
+      status: 'draft',
+    })
+    testPost = parseResult(result)
+  })
+
+  afterEach(() => {
+    cleanGhostDir()
+  })
+
+  // --- posts_sync_from_ghost with format: "markdown" ---
+
+  describe('posts_sync_from_ghost', () => {
+    it('creates markdown.md instead of lexical.json when format is "markdown"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown' })
+
+      const slugDir = path.join(GHOST_DIR, testPost.slug)
+      expect(fs.existsSync(path.join(slugDir, 'meta.json'))).toBe(true)
+      expect(fs.existsSync(path.join(slugDir, 'markdown.md'))).toBe(true)
+      expect(fs.existsSync(path.join(slugDir, 'lexical.json'))).toBe(false)
+    })
+
+    it('meta.json excludes html field when format is "markdown"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+      const meta = readMeta(testPost.slug)
+
+      expect(meta.id).toBe(testPost.id)
+      expect(meta).not.toHaveProperty('html')
+    })
+
+    it('markdown.md contains converted markdown content', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+      const markdown = readMarkdown(testPost.slug)
+
+      expect(markdown).toContain('# Hello markdown format')
+      expect(markdown).toContain('**bold**')
+    })
+
+    it('syncs only specified post IDs with format "markdown"', async () => {
+      const result2 = await callTool(client, 'posts_add', {
+        title: 'Markdown Format Post 2',
+        html: '<p>Second post</p>',
+        status: 'draft',
+      })
+      const post2 = parseResult(result2)
+
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      expect(fs.existsSync(path.join(GHOST_DIR, testPost.slug, 'markdown.md'))).toBe(true)
+      expect(fs.existsSync(path.join(GHOST_DIR, post2.slug))).toBe(false)
+    })
+
+    it('skips when local updated_at equals Ghost and markdown content is identical', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const result = await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toContain('skip')
+    })
+
+    it('errors when local updated_at equals Ghost but markdown content differs', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      writeMarkdown(testPost.slug, '# Locally modified markdown')
+
+      const result = await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report.toLowerCase()).toContain('conflict')
+    })
+
+    it('updates local files when local updated_at is older than Ghost', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.updated_at = '2000-01-01T00:00:00.000Z'
+      writeMeta(testPost.slug, meta)
+
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const updatedMeta = readMeta(testPost.slug)
+      expect(updatedMeta.updated_at).not.toBe('2000-01-01T00:00:00.000Z')
+      expect(fs.existsSync(path.join(GHOST_DIR, testPost.slug, 'markdown.md'))).toBe(true)
+    })
+  })
+
+  // --- posts_sync_to_ghost with format: "markdown" ---
+
+  describe('posts_sync_to_ghost', () => {
+    it('converts markdown to HTML and syncs to Ghost with source: "html"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'Markdown Sync To Ghost Test'
+      writeMeta(testPost.slug, meta)
+      writeMarkdown(testPost.slug, '# Updated Markdown\n\nThis is **updated** content.')
+
+      await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const readResult = await callTool(client, 'posts_read', { id: testPost.id })
+      const ghostPost = parseResult(readResult)
+      expect(ghostPost.title).toBe('Markdown Sync To Ghost Test')
+      expect(ghostPost.html).toContain('Updated Markdown')
+      expect(ghostPost.html).toContain('<strong>updated</strong>')
+    })
+
+    it('ignores html field in meta.json when format is "markdown"', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.html = '<p>Bogus html in meta</p>'
+      meta.title = 'HTML In Meta Ignored'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+      expect(report.toLowerCase()).not.toContain('error')
+    })
+
+    it('does not include html field when markdown.md does not exist', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      fs.unlinkSync(path.join(GHOST_DIR, testPost.slug, 'markdown.md'))
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'No Markdown File'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+      expect(report.toLowerCase()).not.toContain('error')
+    })
+
+    it('errors when markdown.md does not exist', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      fs.unlinkSync(path.join(GHOST_DIR, testPost.slug, 'markdown.md'))
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report.toLowerCase()).toContain('error')
+    })
+
+    it('skips when local updated_at equals Ghost and markdown content is identical', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toContain('skip')
+    })
+
+    it('errors when local updated_at does not match Ghost updated_at', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.updated_at = '2000-01-01T00:00:00.000Z'
+      meta.title = 'Stale Markdown Update'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report.toLowerCase()).toContain('error')
+    })
+
+    it('returns a sync report with synced and skipped counts', async () => {
+      await callTool(client, 'posts_sync_from_ghost', { format: 'markdown', ids: [testPost.id] })
+
+      const meta = readMeta(testPost.slug)
+      meta.title = 'Markdown Report Test'
+      writeMeta(testPost.slug, meta)
+
+      const result = await callTool(client, 'posts_sync_to_ghost', { format: 'markdown', ids: [testPost.id] })
+      const report = resultText(result)
+
+      expect(report).toMatch(/sync/i)
+      expect(report).toMatch(/skip/i)
     })
   })
 })
