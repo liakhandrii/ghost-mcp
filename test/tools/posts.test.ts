@@ -192,13 +192,12 @@ describe('posts sync tools', () => {
       expect(report.toLowerCase()).toContain('error')
     })
 
-    it('returns a sync report with synced, skipped, and error counts', async () => {
+    it('returns a sync report with synced and skipped counts', async () => {
       const result = await callTool(client, 'posts_sync_from_ghost', { ids: [testPost.id] })
       const report = resultText(result)
 
       expect(report).toMatch(/sync/i)
       expect(report).toMatch(/skip/i)
-      expect(report).toMatch(/error/i)
     })
 
     it('preserves existing ghost/posts/ directory on network failure', async () => {
@@ -416,7 +415,7 @@ describe('posts sync tools', () => {
       expect(report.toLowerCase()).toMatch(/posts_add|create|skip/)
     })
 
-    it('returns a sync report with synced, skipped, and error counts', async () => {
+    it('returns a sync report with synced and skipped counts', async () => {
       await callTool(client, 'posts_sync_from_ghost', { ids: [testPost.id] })
 
       const result = await callTool(client, 'posts_sync_to_ghost', { ids: [testPost.id] })
@@ -424,7 +423,6 @@ describe('posts sync tools', () => {
 
       expect(report).toMatch(/sync/i)
       expect(report).toMatch(/skip/i)
-      expect(report).toMatch(/error/i)
     })
   })
 })

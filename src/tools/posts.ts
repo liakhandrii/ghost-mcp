@@ -34,10 +34,10 @@ const deleteParams = {
   id: z.string(),
 };
 const syncFromGhostParams = {
-  postIds: z.array(z.string()).optional(),
+  ids: z.array(z.string()).optional(),
 };
 const syncToGhostParams = {
-  postIds: z.array(z.string()).optional(),
+  ids: z.array(z.string()).optional(),
 };
 
 export function registerPostTools(server: McpServer) {
@@ -152,8 +152,8 @@ export function registerPostTools(server: McpServer) {
 
       try {
         // Fetch posts from Ghost
-        const ghostPosts = args.postIds
-          ? await Promise.all(args.postIds.map(id => ghostApiClient.posts.read({ id })))
+        const ghostPosts = args.ids
+          ? await Promise.all(args.ids.map(id => ghostApiClient.posts.read({ id })))
           : await ghostApiClient.posts.browse({ limit: "all" });
         
         const posts = Array.isArray(ghostPosts) ? ghostPosts : [ghostPosts];
@@ -238,11 +238,13 @@ export function registerPostTools(server: McpServer) {
           }
         }
 
+        const output: Record<string, any> = { synced: report.synced, skipped: report.skipped };
+        if (report.errors.length > 0) output.errors = report.errors;
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(report, null, 2),
+              text: JSON.stringify(output, null, 2),
             },
           ],
         };
@@ -262,27 +264,7 @@ export function registerPostTools(server: McpServer) {
       const report = { synced: 0, skipped: 0, errors: [] as any[], info: [] as any[] };
 
       try {
-        let slugs: string[];
-        
-        if (args.postIds) {
-          // Map post IDs to slugs by reading all directories
-          const allSlugs = await fs.readdir(postsDir);
-          slugs = [];
-          for (const slug of allSlugs) {
-            const metaPath = path.join(postsDir, slug, "meta.json");
-            try {
-              const metaContent = await fs.readFile(metaPath, "utf-8");
-              const meta = JSON.parse(metaContent);
-              if (args.postIds.includes(meta.id)) {
-                slugs.push(slug);
-              }
-            } catch (err) {
-              // Skip invalid directories
-            }
-          }
-        } else {
-          slugs = await fs.readdir(postsDir);
-        }
+        const slugs = await fs.readdir(postsDir);
 
         for (const slug of slugs) {
           const postDir = path.join(postsDir, slug);
@@ -293,6 +275,11 @@ export function registerPostTools(server: McpServer) {
             // Read meta.json
             const metaContent = await fs.readFile(metaPath, "utf-8");
             const localMeta = JSON.parse(metaContent);
+
+            // Filter by ids if specified
+            if (args.ids && localMeta.id && !args.ids.includes(localMeta.id)) {
+              continue;
+            }
 
             if (!localMeta.id) {
               report.skipped++;
@@ -366,11 +353,14 @@ export function registerPostTools(server: McpServer) {
           }
         }
 
+        const output: Record<string, any> = { synced: report.synced, skipped: report.skipped };
+        if (report.errors.length > 0) output.errors = report.errors;
+        if (report.info.length > 0) output.info = report.info;
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(report, null, 2),
+              text: JSON.stringify(output, null, 2),
             },
           ],
         };
