@@ -1,19 +1,12 @@
 # Ghost MCP Server
 
 ## ‼️ Important Notice: Python to TypeScript Migration
-I've completely rewritten the Ghost MCP Server from Python to TypeScript in this v0.1.0 release. This major change brings several benefits:
+I've completely rewritten the Ghost MCP Server from Python to TypeScript in the v0.1.0 release. This major change brings several benefits:
 
 - Simplified installation: Now available as an NPM package (@fanyangmeng/ghost-mcp)
 - Improved reliability: Uses the official @tryghost/admin-api client instead of custom implementation
 - Better maintainability: TypeScript provides type safety and better code organization
 - Streamlined configuration: Simple environment variable setup
-
-### Breaking Changes
-
-- Python dependencies are no longer required
-- Configuration method has changed (now using Node.js environment variables)
-- Docker deployment has been simplified
-- Different installation process (now using NPM)
 
 Please see the below updated documentation for details on migrating from the Python version. If you encounter any issues, feel free to open an issue on GitHub.
 
@@ -34,7 +27,7 @@ A Model Context Protocol (MCP) server for interacting with Ghost CMS through LLM
 
 ## Usage
 
-To use this with MCP clients, for instance, Claude Desktop, add the following to your `claude_desktop_config.json`:
+To use this with MCP clients, for instance, Claude Code/Desktop, Kiro CLI, Gemini, add the following to your config file:
 ```json
 {
   "mcpServers": {
@@ -44,9 +37,7 @@ To use this with MCP clients, for instance, Claude Desktop, add the following to
         "env": {
             "GHOST_API_URL": "https://yourblog.com",
             "GHOST_ADMIN_API_KEY": "your_admin_api_key",
-            "GHOST_API_VERSION": "v5.0",
-            "GHOST_USERNAME": "your_ghost_admin_email (optional, for snippets)",
-            "GHOST_PASSWORD": "your_ghost_admin_password (optional, for snippets)"
+            "GHOST_API_VERSION": "v5.0"
         }
       }
     }
@@ -137,7 +128,7 @@ This MCP server exposes a comprehensive set of tools for managing your Ghost CMS
 - **Edit Snippet**: Update snippet details.
 - **Delete Snippet**: Remove a snippet.
 
-> **Note:** Snippets use an undocumented Ghost API endpoint that rejects integration API tokens. `GHOST_USERNAME` and `GHOST_PASSWORD` must be set for snippets tools to work. On self-hosted Ghost 6+, you may need to disable `security.staffDeviceVerification` in your Ghost config.
+> **Note:** Snippets use the browser with an undocumented Ghost API endpoint that only works with regular cookies and rejects integration API tokens.
 
 ### Webhooks
 - **Browse Webhooks**: List webhooks.
